@@ -1,7 +1,12 @@
 const express = require("express");
+const cors = require("cors");
 const { ECSClient, RunTaskCommand } = require("@aws-sdk/client-ecs");
 require("dotenv").config();
 const app = express();
+const { Server } = require("socket.io");
+const Redis = require("ioredis");
+
+app.use(cors());
 
 const PORT = 9000;
 
@@ -76,6 +81,31 @@ app.post("/project", async (req, res) => {
     data: { project_id, url: `http://${project_id}.localhost:8000` },
   });
 });
+
+const IO_REDIS = process.env.IO_REDIS;
+
+const subscriber = new Redis(IO_REDIS);
+
+const io = new Server({ cors: "*" });
+
+io.on("connection", (socket) => {
+  socket.on("subscribe", (channel) => {
+    socket.join(channel);
+    socket.emit("message", `Joined ${channel}`);
+  });
+});
+
+io.listen(9002, () => console.log("Socket Server 9002"));
+
+async function initRedisSubscribe() {
+  console.log("Subscribed to logs....");
+  subscriber.psubscribe("logs:*");
+  subscriber.on("pmessage", (pattern, channel, message) => {
+    io.to(channel).emit("message", message);
+  });
+}
+
+initRedisSubscribe();
 
 app.listen(PORT, () => {
   console.info(`[server]:[${PORT}] API server`);
